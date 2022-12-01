@@ -61,8 +61,6 @@
 *> \author Univ. of Colorado Denver
 *> \author NAG Ltd.
 *
-*> \date December 2016
-*
 *> \ingroup complex16_blas_level1
 *
 *> \par Further Details:
@@ -78,10 +76,9 @@
 *  =====================================================================
       SUBROUTINE ZDSCAL(N,DA,ZX,INCX)
 *
-*  -- Reference BLAS level1 routine (version 3.7.0) --
+*  -- Reference BLAS level1 routine --
 *  -- Reference BLAS is a software package provided by Univ. of Tennessee,    --
 *  -- Univ. of California Berkeley, Univ. of Colorado Denver and NAG Ltd..--
-*     December 2016
 *
 *     .. Scalar Arguments ..
       DOUBLE PRECISION DA
@@ -95,17 +92,20 @@
 *
 *     .. Local Scalars ..
       INTEGER I,NINCX
+*     .. Parameters ..
+      DOUBLE PRECISION ONE
+      PARAMETER (ONE=1.0D+0)
 *     ..
 *     .. Intrinsic Functions ..
-      INTRINSIC DCMPLX
+      INTRINSIC DBLE, DCMPLX, DIMAG
 *     ..
-      IF (N.LE.0 .OR. INCX.LE.0) RETURN
+      IF (N.LE.0 .OR. INCX.LE.0 .OR. DA.EQ.ONE) RETURN
       IF (INCX.EQ.1) THEN
 *
 *        code for increment equal to 1
 *
          DO I = 1,N
-            ZX(I) = DCMPLX(DA,0.0d0)*ZX(I)
+            ZX(I) = DCMPLX(DA*DBLE(ZX(I)),DA*DIMAG(ZX(I)))
          END DO
       ELSE
 *
@@ -113,8 +113,11 @@
 *
          NINCX = N*INCX
          DO I = 1,NINCX,INCX
-            ZX(I) = DCMPLX(DA,0.0d0)*ZX(I)
+            ZX(I) = DCMPLX(DA*DBLE(ZX(I)),DA*DIMAG(ZX(I)))
          END DO
       END IF
       RETURN
+*
+*     End of ZDSCAL
+*
       END

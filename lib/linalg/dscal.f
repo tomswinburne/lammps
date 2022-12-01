@@ -62,8 +62,6 @@
 *> \author Univ. of Colorado Denver
 *> \author NAG Ltd.
 *
-*> \date December 2016
-*
 *> \ingroup double_blas_level1
 *
 *> \par Further Details:
@@ -79,10 +77,9 @@
 *  =====================================================================
       SUBROUTINE DSCAL(N,DA,DX,INCX)
 *
-*  -- Reference BLAS level1 routine (version 3.7.0) --
+*  -- Reference BLAS level1 routine --
 *  -- Reference BLAS is a software package provided by Univ. of Tennessee,    --
 *  -- Univ. of California Berkeley, Univ. of Colorado Denver and NAG Ltd..--
-*     December 2016
 *
 *     .. Scalar Arguments ..
       DOUBLE PRECISION DA
@@ -96,11 +93,14 @@
 *
 *     .. Local Scalars ..
       INTEGER I,M,MP1,NINCX
+*     .. Parameters ..
+      DOUBLE PRECISION ONE
+      PARAMETER (ONE=1.0D+0)
 *     ..
 *     .. Intrinsic Functions ..
       INTRINSIC MOD
 *     ..
-      IF (N.LE.0 .OR. INCX.LE.0) RETURN
+      IF (N.LE.0 .OR. INCX.LE.0 .OR. DA.EQ.ONE) RETURN
       IF (INCX.EQ.1) THEN
 *
 *        code for increment equal to 1
@@ -133,4 +133,7 @@
          END DO
       END IF
       RETURN
+*
+*     End of DSCAL
+*
       END

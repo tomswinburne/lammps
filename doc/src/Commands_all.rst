@@ -10,11 +10,14 @@
    * :ref:`Dihedral styles <dihedral>`
    * :ref:`Improper styles <improper>`
    * :doc:`KSpace styles <Commands_kspace>`
+   * :doc:`Dump styles <Commands_dump>`
 
 General commands
 ================
 
-An alphabetic list of general LAMMPS commands.
+An alphabetic list of general LAMMPS commands.  Note that style
+commands with many variants, can be more easily accessed via the small
+table above.
 
 .. table_from_list::
    :columns: 5
@@ -28,7 +31,6 @@ An alphabetic list of general LAMMPS commands.
    * :doc:`bond_style <bond_style>`
    * :doc:`bond_write <bond_write>`
    * :doc:`boundary <boundary>`
-   * :doc:`box <box>`
    * :doc:`change_box <change_box>`
    * :doc:`clear <clear>`
    * :doc:`comm_modify <comm_modify>`
@@ -60,6 +62,7 @@ An alphabetic list of general LAMMPS commands.
    * :doc:`kspace_modify <kspace_modify>`
    * :doc:`kspace_style <kspace_style>`
    * :doc:`label <label>`
+   * :doc:`labelmap <labelmap>`
    * :doc:`lattice <lattice>`
    * :doc:`log <log>`
    * :doc:`mass <mass>`
@@ -86,8 +89,7 @@ An alphabetic list of general LAMMPS commands.
    * :doc:`region <region>`
    * :doc:`replicate <replicate>`
    * :doc:`rerun <rerun>`
-   * :doc:`reset_atom_ids <reset_atom_ids>`
-   * :doc:`reset_mol_ids <reset_mol_ids>`
+   * :doc:`reset_atoms <reset_atoms>`
    * :doc:`reset_timestep <reset_timestep>`
    * :doc:`restart <restart>`
    * :doc:`run <run>`
