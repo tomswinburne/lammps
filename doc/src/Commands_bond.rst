@@ -49,7 +49,6 @@ OPT.
    * :doc:`mesocnt <bond_mesocnt>`
    * :doc:`mm3 <bond_mm3>`
    * :doc:`morse (o) <bond_morse>`
-   * :doc:`morse/lattice <bond_morse_lattice>`
    * :doc:`nonlinear (o) <bond_nonlinear>`
    * :doc:`oxdna/fene <bond_oxdna>`
    * :doc:`oxdna2/fene <bond_oxdna>`
