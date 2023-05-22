@@ -823,9 +823,9 @@ void Atom::modify_params(int narg, char **arg)
       if (iarg+2 > narg) utils::missing_cmd_args(FLERR, "atom_modify map", error);
       if (domain->box_exist)
         error->all(FLERR,"Atom_modify map command after simulation box is defined");
-      if (strcmp(arg[iarg+1],"array") == 0) map_user = 1;
-      else if (strcmp(arg[iarg+1],"hash") == 0) map_user = 2;
-      else if (strcmp(arg[iarg+1],"yes") == 0) map_user = 3;
+      if (strcmp(arg[iarg+1],"array") == 0) map_user = MAP_ARRAY;
+      else if (strcmp(arg[iarg+1],"hash") == 0) map_user = MAP_HASH;
+      else if (strcmp(arg[iarg+1],"yes") == 0) map_user = MAP_YES;
       else error->all(FLERR,"Illegal atom_modify map command argument {}", arg[iarg+1]);
       map_style = map_user;
       iarg += 2;
@@ -2271,6 +2271,10 @@ void Atom::sort()
 
   for (i = 0; i < nbins; i++) binhead[i] = -1;
 
+  // for triclinic, atoms must be in box coords (not lamda) to match bbox
+
+  if (domain->triclinic) domain->lamda2x(nlocal);
+
   for (i = nlocal-1; i >= 0; i--) {
     ix = static_cast<int> ((x[i][0]-bboxlo[0])*bininvx);
     iy = static_cast<int> ((x[i][1]-bboxlo[1])*bininvy);
@@ -2285,6 +2289,10 @@ void Atom::sort()
     next[i] = binhead[ibin];
     binhead[ibin] = i;
   }
+
+  // convert back to lamda coords
+
+  if (domain->triclinic) domain->x2lamda(nlocal);
 
   // permute = desired permutation of atoms
   // permute[I] = J means Ith new atom will be Jth old atom
