@@ -15,7 +15,7 @@ endif()
 # set policy to silence warnings about missing executable permissions in
 # pythonx.y-config when cross-compiling. review occasionally if it may be set to NEW
 if(POLICY CMP0109)
-  cmake_policy(SET CMP0109 OLD)
+  cmake_policy(SET CMP0109 NEW)
 endif()
 # set policy to silence warnings about timestamps of downloaded files. review occasionally if it may be set to NEW
 if(POLICY CMP0135)
