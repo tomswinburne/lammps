@@ -26,6 +26,7 @@
 #include "force.h"
 #include "memory.h"
 #include "neighbor.h"
+#include "update.h"
 
 #include <cmath>
 #include <cstring>
@@ -147,7 +148,7 @@ void BondBPMSpringPlastic::store_data()
       delz = x[i][2] - x[j][2];
 
       // Get closest image in case bonded with ghost
-      domain->minimum_image(delx, dely, delz);
+      domain->minimum_image(FLERR, delx, dely, delz);
       r = sqrt(delx * delx + dely * dely + delz * delz);
 
       fix_bond_history->update_atom_value(i, m, 0, r);
@@ -185,6 +186,7 @@ void BondBPMSpringPlastic::compute(int eflag, int vflag)
   int newton_bond = force->newton_bond;
 
   double **bondstore = fix_bond_history->bondstore;
+  const bool allow_breaks = (update->setupflag == 0) && break_flag;
 
   for (n = 0; n < nbondlist; n++) {
 
@@ -217,7 +219,7 @@ void BondBPMSpringPlastic::compute(int eflag, int vflag)
     r = sqrt(rsq);
     e = (r - r0) / r0;
 
-    if ((fabs(e) > ecrit[type]) && break_flag) {
+    if ((fabs(e) > ecrit[type]) && allow_breaks) {
       bondlist[n][2] = 0;
       process_broken(i1, i2);
       continue;
@@ -296,7 +298,7 @@ void BondBPMSpringPlastic::allocate()
 void BondBPMSpringPlastic::coeff(int narg, char **arg)
 {
   if (narg != 5)
-    error->all(FLERR, "Incorrect args for bond coefficients");
+    error->all(FLERR, "Incorrect args for bond coefficients" + utils::errorurl(21));
   if (!allocated) allocate();
 
   int ilo, ihi;
@@ -319,7 +321,7 @@ void BondBPMSpringPlastic::coeff(int narg, char **arg)
     if (1.0 + ecrit[i] > max_stretch) max_stretch = 1.0 + ecrit[i];
   }
 
-  if (count == 0) error->all(FLERR, "Incorrect args for bond coefficients");
+  if (count == 0) error->all(FLERR, "Incorrect args for bond coefficients" + utils::errorurl(21));
 }
 
 /* ----------------------------------------------------------------------
@@ -430,7 +432,7 @@ double BondBPMSpringPlastic::single(int type, double rsq, int i, int j, double &
 {
   if (type <= 0) return 0.0;
 
-  double r0, ep;
+  double r0 = 0.0, ep = 0.0;
   for (int n = 0; n < atom->num_bond[i]; n++) {
     if (atom->bond_atom[i][n] == atom->tag[j]) {
       r0 = fix_bond_history->get_atom_value(i, n, 0);
@@ -440,7 +442,7 @@ double BondBPMSpringPlastic::single(int type, double rsq, int i, int j, double &
 
   double r = sqrt(rsq);
   double rinv = 1.0 / r;
-  double e = (r - r0) / r0;
+  double e = (r0 != 0.0) ? (r - r0) / r0 : 0.0;
 
   if (normalize_flag)
     fforce = -k[type] * (e - ep);
@@ -460,7 +462,7 @@ double BondBPMSpringPlastic::single(int type, double rsq, int i, int j, double &
   fforce *= rinv;
 
   if (smooth_flag) {
-    double smooth = (r - r0) / (r0 * ecrit[type]);
+    double smooth = (r0 != 0.0) ? (r - r0) / (r0 * ecrit[type]) : 0.0;
     smooth *= smooth;
     smooth *= smooth;
     smooth *= smooth;
@@ -471,7 +473,7 @@ double BondBPMSpringPlastic::single(int type, double rsq, int i, int j, double &
   // set single_extra quantities
 
   svector[0] = r0;
-  svector[0] = (1.0 + ep) * r0;
+  svector[1] = (1.0 + ep) * r0;
 
   return 0.0;
 }

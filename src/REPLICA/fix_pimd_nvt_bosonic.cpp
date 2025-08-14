@@ -26,8 +26,8 @@
 #include "bosonic_exchange.h"
 
 #include "atom.h"
+#include "comm.h"
 #include "error.h"
-#include "force.h"
 #include "universe.h"
 
 using namespace LAMMPS_NS;
@@ -46,6 +46,9 @@ FixPIMDBNVT::FixPIMDBNVT(LAMMPS *lmp, int narg, char **arg) : FixPIMDNVT(lmp, na
     error->universe_all(FLERR,
                         "Method not supported in fix pimdb/nvt; only methods PIMD and NMPIMD");
   }
+  if (comm->nprocs != 1)
+    error->universe_all(FLERR,
+                        fmt::format("Fix {} only supports a single processor per bead", style));
 }
 
 /* ---------------------------------------------------------------------- */
