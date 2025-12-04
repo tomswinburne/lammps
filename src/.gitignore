@@ -1687,6 +1687,8 @@
 /fix_atom_swap.h
 /fix_ave_spatial_sphere.cpp
 /fix_ave_spatial_sphere.h
+/fix_ave_moments.cpp
+/fix_ave_moments.h
 /fix_ave_momentum.cpp
 /fix_ave_momentum.h
 /fix_drude.cpp
@@ -1745,6 +1747,8 @@
 /fix_ttm_grid.h
 /fix_ttm_mod.cpp
 /fix_ttm_mod.h
+/fix_ttm_thermal.cpp
+/fix_ttm_thermal.h
 /granular_model.cpp
 /granular_model.h
 /gran_sub_mod_normal.cpp

@@ -124,7 +124,7 @@ class Pair : protected Pointers {
   // KOKKOS flags and variables
 
   ExecutionSpace execution_space;
-  unsigned int datamask_read, datamask_modify;
+  uint64_t datamask_read, datamask_modify;
   int kokkosable;               // 1 if Kokkos pair
   int reverse_comm_device;      // 1 if reverse comm on Device
   int fuse_force_clear_flag;    // 1 if can fuse force clear with force compute
@@ -228,8 +228,6 @@ class Pair : protected Pointers {
   virtual void min_xf_get(int) {}
   virtual void min_x_set(int) {}
   virtual void transfer_history(double *, double *, int, int) {}
-  virtual double atom2cut(int) { return 0.0; }
-  virtual double radii2cut(double, double) { return 0.0; }
 
   // management of callbacks to be run from ev_tally()
 

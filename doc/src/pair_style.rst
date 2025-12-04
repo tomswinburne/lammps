@@ -120,7 +120,6 @@ accelerated styles exist.
 * :doc:`airebo/morse <pair_airebo>` - AIREBO with Morse instead of LJ
 * :doc:`amoeba <pair_amoeba>` -
 * :doc:`atm <pair_atm>` - Axilrod-Teller-Muto potential
-* :doc:`awpmd/cut <pair_awpmd>` - Antisymmetrized Wave Packet MD potential for atoms and electrons
 * :doc:`beck <pair_beck>` - Beck potential
 * :doc:`body/nparticle <pair_body_nparticle>` - interactions between body particles
 * :doc:`body/rounded/polygon <pair_body_rounded_polygon>` - granular-style 2d polygon potential
@@ -355,6 +354,7 @@ accelerated styles exist.
 * :doc:`rheo/solid <pair_rheo_solid>` - solid interactions in RHEO package
 * :doc:`resquared <pair_resquared>` - Everaers RE-Squared ellipsoidal potential
 * :doc:`saip/metal <pair_saip_metal>` - Interlayer potential for hetero-junctions formed with hexagonal 2D materials and metal surfaces
+* :doc:`saip/metal/tmd <pair_saip_metal>` - Interlayer potential for transition-metal dichalcogenide / metal interfaces
 * :doc:`sdpd/taitwater/isothermal <pair_sdpd_taitwater_isothermal>` - Smoothed dissipative particle dynamics for water at isothermal conditions
 * :doc:`smatb <pair_smatb>` - Second Moment Approximation to the Tight Binding
 * :doc:`smatb/single <pair_smatb>` - Second Moment Approximation to the Tight Binding for single-element systems
