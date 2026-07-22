@@ -15,7 +15,7 @@ Syntax
 
 .. code-block:: LAMMPS
 
-   fix ID group-ID style tol iter N constraint values ... keyword value ...
+   fix ID group-ID style tol iter N constraint values ... [keyword args ...]
 
 * ID, group-ID are documented in :doc:`fix <fix>` command
 * style = shake or rattle = style name of this fix command
@@ -204,7 +204,7 @@ will be fulfilled to the desired accuracy within a few MD steps
 following the minimization. The default value for *kbond* depends on the
 :doc:`units <units>` setting and is 1.0e9*k_B.
 
-.. versionadded:: TBD
+.. versionadded:: 10Dec2025
 
 The *store* keyword controls whether the fix stores the constraint
 (or restraint) forces as a per-atom property.

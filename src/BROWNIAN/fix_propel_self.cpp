@@ -26,6 +26,8 @@
 #include "domain.h"
 #include "error.h"
 #include "math_extra.h"
+#include "respa.h"
+#include "update.h"
 
 #include <cmath>
 #include <cstring>
@@ -40,12 +42,13 @@ static constexpr double SMALL = 1.0e-14;
 
 /* ---------------------------------------------------------------------- */
 
-FixPropelSelf::FixPropelSelf(LAMMPS *lmp, int narg, char **arg) : Fix(lmp, narg, arg), avec(nullptr)
+FixPropelSelf::FixPropelSelf(LAMMPS *lmp, int narg, char **arg) :
+    Fix(lmp, narg, arg), ilevel_respa(0), avec(nullptr)
 {
 
   virial_global_flag = virial_peratom_flag = 1;
 
-  if (narg != 5 && narg != 9) error->all(FLERR, "Illegal fix propel/self command");
+  if (narg != 5 && narg != 9) error->all(FLERR, "Incorrect number of fix propel/self arguments");
 
   if (strcmp(arg[3], "velocity") == 0) {
     mode = VELOCITY;
@@ -100,15 +103,21 @@ int FixPropelSelf::setmask()
 
 void FixPropelSelf::init()
 {
+  if (utils::strmatch(update->integrate_style, "^respa")) {
+    int max_respa = (dynamic_cast<Respa *>(update->integrate))->nlevels - 1;
+    ilevel_respa = max_respa;
+    if (respa_level >= 0) ilevel_respa = MIN(respa_level, max_respa);
+  }
+
   if (mode == DIPOLE && !atom->mu_flag)
     error->all(FLERR, Error::NOLASTLINE,
-               "Fix propel/self requires atom attribute mu with option dipole");
+               "Fix propel/self with option dipole requires atom attribute mu");
 
   if (mode == QUAT) {
     avec = dynamic_cast<AtomVecEllipsoid *>(atom->style_match("ellipsoid"));
     if (!avec)
       error->all(FLERR, Error::NOLASTLINE,
-                 "Fix propel/self requires atom style ellipsoid with option quat");
+                 "Fix propel/self with option quat requires atom style ellipsoid");
 
     // check that all particles are finite-size ellipsoids
     // no point particles allowed, spherical is OK
@@ -121,7 +130,7 @@ void FixPropelSelf::init()
       if (mask[i] & groupbit)
         if (ellipsoid[i] < 0)
           error->one(FLERR, Error::NOLASTLINE,
-                     "Fix propel/self requires extended particles with option quat");
+                     "Fix propel/self with option quat requires extended particles");
   }
 }
 
@@ -129,7 +138,20 @@ void FixPropelSelf::init()
 
 void FixPropelSelf::setup(int vflag)
 {
-  post_force(vflag);
+  if (utils::strmatch(update->integrate_style, "^verlet"))
+    post_force(vflag);
+  else {
+    (dynamic_cast<Respa *>(update->integrate))->copy_flevel_f(ilevel_respa);
+    post_force_respa(vflag, ilevel_respa, 0);
+    (dynamic_cast<Respa *>(update->integrate))->copy_f_flevel(ilevel_respa);
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixPropelSelf::post_force_respa(int vflag, int ilevel, int /*iloop*/)
+{
+  if (ilevel == ilevel_respa) post_force(vflag);
 }
 
 /* ---------------------------------------------------------------------- */

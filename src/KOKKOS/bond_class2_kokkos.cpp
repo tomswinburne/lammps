@@ -22,8 +22,10 @@
 #include "atom_masks.h"
 #include "comm.h"
 #include "force.h"
+#include "kokkos.h"
 #include "memory_kokkos.h"
 #include "neighbor_kokkos.h"
+#include "tune_kokkos.h"
 
 #include <cmath>
 
@@ -35,6 +37,7 @@ template<class DeviceType>
 BondClass2Kokkos<DeviceType>::BondClass2Kokkos(LAMMPS *lmp) : BondClass2(lmp)
 {
   kokkosable = 1;
+  tuner = nullptr;
 
   atomKK = (AtomKokkos *) atom;
   neighborKK = (NeighborKokkos *) neighbor;
@@ -51,6 +54,8 @@ BondClass2Kokkos<DeviceType>::~BondClass2Kokkos()
   if (!copymode) {
     memoryKK->destroy_kokkos(k_eatom,eatom);
     memoryKK->destroy_kokkos(k_vatom,vatom);
+
+    delete tuner;
   }
 }
 
@@ -94,7 +99,13 @@ void BondClass2Kokkos<DeviceType>::compute(int eflag_in, int vflag_in)
 
   copymode = 1;
 
-  // loop over neighbors of my atoms
+  // loop over the bond list
+
+  if (lmp->kokkos->autotuning && tuner) tuner->tuning_kernel_params();
+
+  int bond_chunk_size = 0;
+  if (lmp->kokkos->bond_chunk_size_set)
+    bond_chunk_size = lmp->kokkos->bond_chunk_size;
 
   EV_FLOAT ev;
 
@@ -106,9 +117,15 @@ void BondClass2Kokkos<DeviceType>::compute(int eflag_in, int vflag_in)
     }
   } else {
     if (newton_bond) {
-      Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType, TagBondClass2Compute<1,0> >(0,nbondlist),*this);
+      if (bond_chunk_size)
+        Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType, TagBondClass2Compute<1,0> >(0,nbondlist,Kokkos::ChunkSize(bond_chunk_size)),*this);
+      else
+        Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType, TagBondClass2Compute<1,0> >(0,nbondlist),*this);
     } else {
-      Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType, TagBondClass2Compute<0,0> >(0,nbondlist),*this);
+      if (bond_chunk_size)
+        Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType, TagBondClass2Compute<0,0> >(0,nbondlist,Kokkos::ChunkSize(bond_chunk_size)),*this);
+      else
+        Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType, TagBondClass2Compute<0,0> >(0,nbondlist),*this);
     }
   }
 
@@ -139,6 +156,7 @@ void BondClass2Kokkos<DeviceType>::compute(int eflag_in, int vflag_in)
 
 template<class DeviceType>
 template<int NEWTON_BOND, int EVFLAG>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void BondClass2Kokkos<DeviceType>::operator()(TagBondClass2Compute<NEWTON_BOND,EVFLAG>, const int &n, EV_FLOAT& ev) const {
 
@@ -188,6 +206,7 @@ void BondClass2Kokkos<DeviceType>::operator()(TagBondClass2Compute<NEWTON_BOND,E
 
 template<class DeviceType>
 template<int NEWTON_BOND, int EVFLAG>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void BondClass2Kokkos<DeviceType>::operator()(TagBondClass2Compute<NEWTON_BOND,EVFLAG>, const int &n) const {
   EV_FLOAT ev;
@@ -200,6 +219,22 @@ template<class DeviceType>
 void BondClass2Kokkos<DeviceType>::allocate()
 {
   BondClass2::allocate();
+
+  int n = atom->nbondtypes;
+  k_k2 = DAT::tdual_kkfloat_1d("BondClass2::k2",n+1);
+  k_k3 = DAT::tdual_kkfloat_1d("BondClass2::k3",n+1);
+  k_k4 = DAT::tdual_kkfloat_1d("BondClass2::k4",n+1);
+  k_r0 = DAT::tdual_kkfloat_1d("BondClass2::r0",n+1);
+
+  d_k2 = k_k2.template view<DeviceType>();
+  d_k3 = k_k3.template view<DeviceType>();
+  d_k4 = k_k4.template view<DeviceType>();
+  d_r0 = k_r0.template view<DeviceType>();
+
+  if (lmp->kokkos->autotuning > 0 && !tuner) {
+    tuner = new TuneKokkos(lmp, TuneKokkos::BOND, lmp->kokkos->autotuning,
+      1, "bond-class2");
+  }
 }
 
 /* ----------------------------------------------------------------------
@@ -211,18 +246,10 @@ void BondClass2Kokkos<DeviceType>::coeff(int narg, char **arg)
 {
   BondClass2::coeff(narg, arg);
 
-  int n = atom->nbondtypes;
-  DAT::tdual_kkfloat_1d k_k2("BondClass2::k2",n+1);
-  DAT::tdual_kkfloat_1d k_k3("BondClass2::k3",n+1);
-  DAT::tdual_kkfloat_1d k_k4("BondClass2::k4",n+1);
-  DAT::tdual_kkfloat_1d k_r0("BondClass2::r0",n+1);
+  int ilo,ihi;
+  utils::bounds(FLERR,arg[0],1,atom->nbondtypes,ilo,ihi,error);
 
-  d_k2 = k_k2.template view<DeviceType>();
-  d_k3 = k_k3.template view<DeviceType>();
-  d_k4 = k_k4.template view<DeviceType>();
-  d_r0 = k_r0.template view<DeviceType>();
-
-  for (int i = 1; i <= n; i++) {
+  for (int i = ilo; i <= ihi; i++) {
     k_k2.view_host()[i] = k2[i];
     k_k3.view_host()[i] = k3[i];
     k_k4.view_host()[i] = k4[i];
@@ -282,6 +309,7 @@ void BondClass2Kokkos<DeviceType>::read_restart(FILE *fp)
 
 template<class DeviceType>
 //template<int NEWTON_BOND>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void BondClass2Kokkos<DeviceType>::ev_tally(EV_FLOAT &ev, const int &i, const int &j,
       const KK_FLOAT &ebond, const KK_FLOAT &fbond, const KK_FLOAT &delx,

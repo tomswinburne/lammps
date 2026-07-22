@@ -51,6 +51,7 @@ static constexpr FFT_SCALAR ZEROF = 0.0;
 template<class DeviceType>
 PPPMKokkos<DeviceType>::PPPMKokkos(LAMMPS *lmp) : PPPM(lmp)
 {
+  kokkosable = 1;
   atomKK = (AtomKokkos *) atom;
   execution_space = ExecutionSpaceFromDevice<DeviceType>::space;
   datamask_read = X_MASK | F_MASK | TYPE_MASK | Q_MASK;
@@ -147,8 +148,12 @@ void PPPMKokkos<DeviceType>::init()
   if (triclinic != domain->triclinic)
     error->all(FLERR,"Must redefine kspace_style after changing to triclinic box");
 
-  if (domain->triclinic && slabflag)
-    error->all(FLERR,"Cannot (yet) use PPPM with triclinic box and slab correction");
+  if (domain->triclinic && (slabflag == 2 || slabflag == 3))
+    error->all(FLERR,"Triclinic boxes only support the 'kspace_modify slab "
+               "<volfactor>' correction, not 'slab nozforce' or 'slab ew2d'");
+  if (domain->triclinic && slabflag == 1 && (domain->yz != 0.0 || domain->xz != 0.0))
+    error->all(FLERR,"Triclinic slab (EW3DC) correction requires xz = yz = 0 "
+               "(the slab normal must be the z axis); xy tilt is allowed");
   if (domain->dimension == 2)
     error->all(FLERR,"Cannot use PPPM with 2d simulation");
 
@@ -384,6 +389,7 @@ void PPPMKokkos<DeviceType>::setup()
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_setup1, const int &i) const
 {
@@ -393,6 +399,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_setup1, const int &i) const
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_setup2, const int &i) const
 {
@@ -402,6 +409,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_setup2, const int &i) const
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_setup3, const int &i) const
 {
@@ -411,6 +419,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_setup3, const int &i) const
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_setup4, const int &n) const
 {
@@ -462,11 +471,16 @@ void PPPMKokkos<DeviceType>::setup_triclinic()
   volume = xprd * yprd * zprd_slab;
 
   // use lamda (0-1) coordinates
+  // for the EW3DC slab correction the lamda z grid is extended by
+  // slab_volfactor (vacuum insertion), matching Grid3d::set_zfactor() used in
+  // the grid decomposition.  delzinv maps lamda z in [0,1] onto grid indices
+  // [0,nz_pppm/slab_volfactor]; delvolinv uses the full nz_pppm so the grid
+  // cell volume stays volume/(nx*ny*nz).  slab_volfactor == 1.0 for non-slab.
 
   delxinv = nx_pppm;
   delyinv = ny_pppm;
-  delzinv = nz_pppm;
-  delvolinv = delxinv*delyinv*delzinv/volume;
+  delzinv = nz_pppm/slab_volfactor;
+  delvolinv = delxinv*delyinv*nz_pppm/volume;
 
   // ensure all relevant _kk values are up to date
   delxinv_kk = static_cast<KK_FLOAT>(delxinv);
@@ -495,6 +509,7 @@ void PPPMKokkos<DeviceType>::setup_triclinic()
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_setup_triclinic1, const int &n) const
 {
@@ -520,6 +535,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_setup_triclinic1, const int &n) 
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_setup_triclinic2, const int &n) const
 {
@@ -706,13 +722,14 @@ void PPPMKokkos<DeviceType>::compute(int eflag, int vflag)
     }
   }
 
+  // convert atoms back from lamda to box coords
+  // must precede slabcorr(), which needs Cartesian z-coordinates
+
+  if (triclinic) domain->lamda2x(atom->nlocal);
+
   // 2d slab correction
 
   if (slabflag == 1) slabcorr();
-
-  // convert atoms back from lamda to box coords
-
-  if (triclinic) domain->lamda2x(atom->nlocal);
 
   if (eflag_atom) {
     k_eatom.template modify<DeviceType>();
@@ -726,6 +743,7 @@ void PPPMKokkos<DeviceType>::compute(int eflag, int vflag)
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_self1, const int &i) const
 {
@@ -738,6 +756,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_self1, const int &i) const
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_self2, const int &i) const
 {
@@ -833,22 +852,23 @@ void PPPMKokkos<DeviceType>::allocate()
   // remap takes data from 3d brick to FFT decomposition
 
   int collective_flag = force->kspace->collective_flag;
+  int nonblocking_flag = force->kspace->nonblocking_flag;
   int gpu_aware_flag = lmp->kokkos->gpu_aware_flag;
   int tmp;
 
   fft1 = new FFT3dKokkos<DeviceType>(lmp,world,nx_pppm,ny_pppm,nz_pppm,
                          nxlo_fft,nxhi_fft,nylo_fft,nyhi_fft,nzlo_fft,nzhi_fft,
                          nxlo_fft,nxhi_fft,nylo_fft,nyhi_fft,nzlo_fft,nzhi_fft,
-                         0,0,&tmp,collective_flag,gpu_aware_flag);
+                         0,0,&tmp,collective_flag,nonblocking_flag,gpu_aware_flag);
 
   fft2 = new FFT3dKokkos<DeviceType>(lmp,world,nx_pppm,ny_pppm,nz_pppm,
                          nxlo_fft,nxhi_fft,nylo_fft,nyhi_fft,nzlo_fft,nzhi_fft,
                          nxlo_in,nxhi_in,nylo_in,nyhi_in,nzlo_in,nzhi_in,
-                         0,0,&tmp,collective_flag,gpu_aware_flag);
+                         0,0,&tmp,collective_flag,nonblocking_flag,gpu_aware_flag);
   remap = new RemapKokkos<DeviceType>(lmp,world,
                           nxlo_in,nxhi_in,nylo_in,nyhi_in,nzlo_in,nzhi_in,
                           nxlo_fft,nxhi_fft,nylo_fft,nyhi_fft,nzlo_fft,nzhi_fft,
-                          1,0,0,FFT_PRECISION,collective_flag,gpu_aware_flag);
+                          1,0,0,FFT_PRECISION,collective_flag,nonblocking_flag,gpu_aware_flag);
 }
 
 /* ----------------------------------------------------------------------
@@ -1023,6 +1043,7 @@ void PPPMKokkos<DeviceType>::compute_gf_ik()
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_compute_gf_ik, const int &n) const
 {
@@ -1092,6 +1113,11 @@ void PPPMKokkos<DeviceType>::compute_gf_ik_triclinic()
   tmp[1] = (g_ewald/(MY_PI*ny_pppm)) * pow(-log(EPS_HOC),0.25);
   tmp[2] = (g_ewald/(MY_PI*nz_pppm)) * pow(-log(EPS_HOC),0.25);
   lamda2xT(&tmp[0],&tmp[0]);
+  // EW3DC slab correction: the z grid is extended by slab_volfactor, so the
+  // alias-sum bound in z must use the extended length (lamda2xT only supplies
+  // zprd).  z is non-periodic for slab geometries (xz == yz == 0), so the z
+  // bound decouples.  slab_volfactor == 1.0 for non-slab calculations.
+  if (slabflag == 1) tmp[2] *= slab_volfactor;
   nbx = static_cast<int> (tmp[0]);
   nby = static_cast<int> (tmp[1]);
   nbz = static_cast<int> (tmp[2]);
@@ -1108,6 +1134,7 @@ void PPPMKokkos<DeviceType>::compute_gf_ik_triclinic()
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_compute_gf_ik_triclinic, const int &m) const
 {
@@ -1216,6 +1243,7 @@ void PPPMKokkos<DeviceType>::particle_map()
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_particle_map, const int &i) const
 {
@@ -1293,6 +1321,7 @@ void PPPMKokkos<DeviceType>::make_rho()
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_make_rho_zero, const int &ii) const
 {
@@ -1303,6 +1332,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_make_rho_zero, const int &ii) co
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_make_rho_atomic, const int &i) const
 {
@@ -1338,6 +1368,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_make_rho_atomic, const int &i) c
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator() (TagPPPM_make_rho, typename Kokkos::TeamPolicy<DeviceType, TagPPPM_make_rho>::member_type dev) const {
   // adapted from OPENMP/pppm.cpp:
@@ -1423,6 +1454,7 @@ void PPPMKokkos<DeviceType>::brick2fft()
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_brick2fft, const int &ii) const
 {
@@ -1550,6 +1582,7 @@ void PPPMKokkos<DeviceType>::poisson_ik()
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik1, const int &i) const
 {
@@ -1558,6 +1591,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik1, const int &i) const
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik2, const int &i, EV_FLOAT& ev) const
 {
@@ -1567,6 +1601,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik2, const int &i, EV_FL
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik3, const int &i, EV_FLOAT& ev) const
 {
@@ -1575,6 +1610,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik3, const int &i, EV_FL
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik4, const int &i) const
 {
@@ -1583,6 +1619,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik4, const int &i) const
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik5, const int &ii) const
 {
@@ -1595,6 +1632,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik5, const int &ii) cons
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik6, const int &ii) const
 {
@@ -1609,6 +1647,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik6, const int &ii) cons
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik7, const int &ii) const
 {
@@ -1620,6 +1659,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik7, const int &ii) cons
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik8, const int &ii) const
 {
@@ -1634,6 +1674,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik8, const int &ii) cons
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik9, const int &ii) const
 {
@@ -1644,6 +1685,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik9, const int &ii) cons
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik10, const int &ii) const
 {
@@ -1718,6 +1760,7 @@ void PPPMKokkos<DeviceType>::poisson_ik_triclinic()
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik_triclinic1, const int &ii) const
 {
@@ -1726,6 +1769,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik_triclinic1, const int
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik_triclinic2, const int &ii) const
 {
@@ -1740,6 +1784,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik_triclinic2, const int
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik_triclinic3, const int &ii) const
 {
@@ -1750,6 +1795,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik_triclinic3, const int
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik_triclinic4, const int &ii) const
 {
@@ -1767,6 +1813,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik_triclinic4, const int
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik_triclinic5, const int &ii) const
 {
@@ -1777,6 +1824,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik_triclinic5, const int
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_ik_triclinic6, const int &ii) const
 {
@@ -1904,6 +1952,7 @@ void PPPMKokkos<DeviceType>::poisson_peratom()
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom1, const int &i) const
 {
@@ -1915,6 +1964,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom1, const int &i) 
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom2, const int &ii) const
 {
@@ -1929,6 +1979,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom2, const int &ii)
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom3, const int &i) const
 {
@@ -1940,6 +1991,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom3, const int &i) 
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom4, const int &ii) const
 {
@@ -1954,6 +2006,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom4, const int &ii)
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom5, const int &i) const
 {
@@ -1965,6 +2018,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom5, const int &i) 
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom6, const int &ii) const
 {
@@ -1979,6 +2033,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom6, const int &ii)
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom7, const int &i) const
 {
@@ -1990,6 +2045,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom7, const int &i) 
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom8, const int &ii) const
 {
@@ -2004,6 +2060,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom8, const int &ii)
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom9, const int &i) const
 {
@@ -2015,6 +2072,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom9, const int &i) 
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom10, const int &ii) const
 {
@@ -2029,6 +2087,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom10, const int &ii
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom11, const int &i) const
 {
@@ -2040,6 +2099,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom11, const int &i)
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom12, const int &ii) const
 {
@@ -2054,6 +2114,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom12, const int &ii
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom13, const int &i) const
 {
@@ -2065,6 +2126,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom13, const int &i)
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_poisson_peratom14, const int &ii) const
 {
@@ -2112,6 +2174,7 @@ void PPPMKokkos<DeviceType>::fieldforce_ik()
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_fieldforce_ik, const int &i) const
 {
@@ -2181,6 +2244,7 @@ void PPPMKokkos<DeviceType>::fieldforce_peratom()
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_fieldforce_peratom, const int &i) const
 {
@@ -2261,6 +2325,7 @@ void PPPMKokkos<DeviceType>::pack_forward_grid_kokkos(int flag, FFT_DAT::tdual_F
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_pack_forward1, const int &i) const
 {
@@ -2274,6 +2339,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_pack_forward1, const int &i) con
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_pack_forward2, const int &i) const
 {
@@ -2318,6 +2384,7 @@ void PPPMKokkos<DeviceType>::unpack_forward_grid_kokkos(int flag, FFT_DAT::tdual
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_unpack_forward1, const int &i) const
 {
@@ -2331,6 +2398,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_unpack_forward1, const int &i) c
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_unpack_forward2, const int &i) const
 {
@@ -2369,6 +2437,7 @@ void PPPMKokkos<DeviceType>::pack_reverse_grid_kokkos(int /*flag*/, FFT_DAT::tdu
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_pack_reverse, const int &i) const
 {
@@ -2400,6 +2469,7 @@ void PPPMKokkos<DeviceType>::unpack_reverse_grid_kokkos(int /*flag*/, FFT_DAT::t
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_unpack_reverse, const int &i) const
 {
@@ -2416,6 +2486,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_unpack_reverse, const int &i) co
 ------------------------------------------------------------------------- */
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::compute_rho1d(const int i, const FFT_SCALAR &dx, const FFT_SCALAR &dy,
                          const FFT_SCALAR &dz) const
@@ -2567,6 +2638,7 @@ void PPPMKokkos<DeviceType>::slabcorr()
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_slabcorr1, const int &i, double &dipole) const
 {
@@ -2574,6 +2646,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_slabcorr1, const int &i, double 
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_slabcorr2, const int &i, double &dipole_r2) const
 {
@@ -2581,6 +2654,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_slabcorr2, const int &i, double 
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_slabcorr3, const int &i) const
 {
@@ -2591,6 +2665,7 @@ void PPPMKokkos<DeviceType>::operator()(TagPPPM_slabcorr3, const int &i) const
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_slabcorr4, const int &i) const
 {
@@ -2630,6 +2705,7 @@ int PPPMKokkos<DeviceType>::timing_1d(int n, double &time1d)
 }
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void PPPMKokkos<DeviceType>::operator()(TagPPPM_timing_zero, const int &i) const
 {

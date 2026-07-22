@@ -52,6 +52,7 @@ enum{NONE,RLINEAR,RSQ,BMP};
 #define isOneFluid(_site_) ( (_site_) == OneFluidValue )
 
 template<class DeviceType>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void getMixingWeights(
     typename ArrayTypes<DeviceType>::t_kkfloat_2d_randomread dvector,
@@ -79,6 +80,8 @@ void getMixingWeights(
     assert(ispecies+nspecies < (int)dvector.extent(0));
     nTotalOld += dvector(ispecies+nspecies,id);
   }
+  if (nTotal < MY_EPSILON || nTotalOld < MY_EPSILON)
+    Kokkos::abort("The number of molecules in CG particle is less than 10*DBL_EPSILON.");
 
   assert(isite1 >= 0);
   assert(isite1 < nspecies);
@@ -198,12 +201,14 @@ void PairTableRXKokkos<DeviceType>::compute(int eflag_in, int vflag_in)
     compute_style<BITMAP>(eflag_in,vflag_in);
 }
 
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION static int sbmask(const int& j)
 {
   return j >> SBBITS & 3;
 }
 
 template <class DeviceType, int TABSTYLE>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 static KK_FLOAT
 compute_fpair(KK_FLOAT rsq,
@@ -238,6 +243,7 @@ compute_fpair(KK_FLOAT rsq,
 }
 
 template<class DeviceType, int TABSTYLE>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 static KK_FLOAT
 compute_evdwl(
@@ -273,6 +279,7 @@ compute_evdwl(
 }
 
 template<class DeviceType, int NEIGHFLAG, int TABSTYLE, int NEWTON_PAIR>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 void
 ev_tally(
@@ -384,6 +391,7 @@ ev_tally(
 
 template <class DeviceType, int NEIGHFLAG, bool STACKPARAMS, int TABSTYLE,
           int EVFLAG, int NEWTON_PAIR>
+// NOLINTNEXTLINE
 KOKKOS_INLINE_FUNCTION
 static EV_FLOAT
 compute_item(

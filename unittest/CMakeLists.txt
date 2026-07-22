@@ -5,15 +5,15 @@
 
 # download and build googletest framework
 # cannot compile googletest anymore with the default GCC on RHEL 7.x
-if((CMAKE_CXX_COMPILER_ID STREQUAL "GNU") AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 6.0))
-  message(FATAL_ERROR "Need GNU C++ compiler version 6.x or later for unit testing")
+if((CMAKE_CXX_COMPILER_ID STREQUAL "GNU") AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.3))
+  message(FATAL_ERROR "Need GNU C++ compiler version 9.3 or later for unit testing")
 endif()
 
 message(STATUS "Downloading and building googletest framework")
 set(GTEST_URL "https://github.com/google/googletest/releases/download/v1.17.0/googletest-1.17.0.tar.gz" CACHE STRING "URL of googletest source")
-set(GTEST_MD5 "b6f100bc2a5853a48046aa168ececf84" CACHE STRING "MD5 sum for googletest source")
+set(GTEST_SHA256 "65fab701d9829d38cb77c14acdc431d2108bfdbf8979e40eb8ae567edf10b27c" CACHE STRING "SHA256 sum for googletest source")
 mark_as_advanced(GTEST_URL)
-mark_as_advanced(GTEST_MD5)
+mark_as_advanced(GTEST_SHA256)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
 include(ExternalCMakeProject)
@@ -22,11 +22,25 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
 endif()
 set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 set(INSTALL_GMOCK OFF CACHE BOOL "" FORCE)
-ExternalCMakeProject(googletest ${GTEST_URL} ${GTEST_MD5} googletest . "")
+ExternalCMakeProject(googletest ${GTEST_URL} ${GTEST_SHA256} googletest . "")
 add_library(GTest::GTest ALIAS gtest)
 add_library(GTest::GMock ALIAS gmock)
 add_library(GTest::GTestMain ALIAS gtest_main)
 add_library(GTest::GMockMain ALIAS gmock_main)
+
+# download and build libyaml if not available globally
+find_package(YAML)
+if(NOT YAML_FOUND)
+  set(YAML_URL "https://pyyaml.org/download/libyaml/yaml-0.2.5.tar.gz" CACHE STRING "URL for libyaml tarball")
+  set(YAML_SHA256 "c642ae9b75fee120b2d96c712538bd2cf283228d2337df2cf2988e3c02678ef4" CACHE STRING "SHA256 checksum of libyaml tarball")
+  mark_as_advanced(YAML_URL)
+  mark_as_advanced(YAML_SHA256)
+
+  # download and build a local copy of libyaml
+  include(ExternalCMakeProject)
+  ExternalCMakeProject(libyaml ${YAML_URL} ${YAML_SHA256} yaml . CMakeLists.libyaml)
+  add_library(Yaml::Yaml ALIAS yaml)
+endif()
 
 option(SKIP_DEATH_TESTS "Do not run 'death tests' to reduce false positives in valgrind" OFF)
 mark_as_advanced(SKIP_DEATH_TESTS)
@@ -101,13 +115,12 @@ add_subdirectory(cplusplus)
 add_subdirectory(fortran)
 add_subdirectory(python)
 add_subdirectory(force-styles)
-
-# clang-format support for test sources
-
-find_package(ClangFormat 8.0)
-
-if(ClangFormat_FOUND)
-  add_custom_target(format-tests
-    COMMAND ${ClangFormat_EXECUTABLE} --verbose -i -style=file */*.cpp */*.h
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+if(PKG_BPM)
+  add_subdirectory(bpm)
+endif()
+if(PKG_GRANULAR)
+  add_subdirectory(granular)
+endif()
+if (PKG_GRAPHICS)
+  add_subdirectory(graphics)
 endif()

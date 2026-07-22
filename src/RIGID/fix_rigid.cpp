@@ -31,6 +31,7 @@
 #include "random_mars.h"
 #include "respa.h"
 #include "rigid_const.h"
+#include "safe_pointers.h"
 #include "tokenizer.h"
 #include "update.h"
 #include "variable.h"
@@ -161,6 +162,7 @@ FixRigid::FixRigid(LAMMPS *lmp, int narg, char **arg) :
         molecule = new tagint[nlocal];
         for (i = 0; i < nlocal; i++)
           if (mask[i] & groupbit) molecule[i] = (tagint) ((tagint) value[i] - minval + 1);
+          else molecule[i] = 0;
         delete[] value;
 
       } else
@@ -755,6 +757,10 @@ void FixRigid::init()
     int tmp;
     gvec = (double *) ifix->extract("gvec", tmp);
   }
+
+  // error for not supported superellipsoids
+
+  if (atom->superellipsoid_flag) error->all(FLERR,"Superellipsoids not supported in fix rigid");
 
   // timestep info
 
@@ -1570,9 +1576,9 @@ void FixRigid::set_v()
   if (extended) {
     double *shape,*quatatom,*inertiaatom;
 
-    AtomVecEllipsoid::Bonus *ebonus;
+    AtomVecEllipsoid::Bonus *ebonus = nullptr;
     if (avec_ellipsoid) ebonus = avec_ellipsoid->bonus;
-    AtomVecTri::Bonus *tbonus;
+    AtomVecTri::Bonus *tbonus = nullptr;
     if (avec_tri) tbonus = avec_tri->bonus;
     double **omega_one = atom->omega;
     double **angmom_one = atom->angmom;
@@ -2206,7 +2212,7 @@ void FixRigid::setup_bodies_dynamic()
   // extended particles add their rotation to angmom of body
 
   if (extended) {
-    AtomVecLine::Bonus *lbonus;
+    AtomVecLine::Bonus *lbonus = nullptr;
     if (avec_line) lbonus = avec_line->bonus;
     double **omega_one = atom->omega;
     double **angmom_one = atom->angmom;
@@ -2265,7 +2271,7 @@ void FixRigid::readfile(int which, double *vec, double **array1, double **array2
 {
   int nchunk,id,eofflag,xbox,ybox,zbox;
   int nlines;
-  FILE *fp;
+  SafeFilePtr fp;
   char *eof,*start,*next,*buf;
   char line[MAXLINE] = {'\0'};
 
@@ -2283,7 +2289,6 @@ void FixRigid::readfile(int which, double *vec, double **array1, double **array2
     nlines = utils::inumeric(FLERR, utils::trim(line), true, lmp);
     if (which == 0)
       utils::logmesg(lmp, "Reading rigid body data for {} bodies from file {}\n", nlines, inpfile);
-    if (nlines == 0) fclose(fp);
   }
   MPI_Bcast(&nlines,1,MPI_INT,0,world);
 
@@ -2370,7 +2375,6 @@ void FixRigid::readfile(int which, double *vec, double **array1, double **array2
     nread += nchunk;
   }
 
-  if (comm->me == 0) fclose(fp);
   delete[] buffer;
 }
 
@@ -2385,7 +2389,7 @@ void FixRigid::write_restart_file(const char *file)
   if (comm->me) return;
 
   auto outfile = std::string(file) + ".rigid";
-  FILE *fp = fopen(outfile.c_str(),"w");
+  SafeFilePtr fp = fopen(outfile.c_str(),"w");
   if (fp == nullptr)
     error->one(FLERR,"Cannot open fix rigid restart file {}: {}",outfile,utils::getsyserror());
 
@@ -2419,7 +2423,6 @@ void FixRigid::write_restart_file(const char *file)
             angmom[i][0],angmom[i][1],angmom[i][2],xbox,ybox,zbox);
   }
 
-  fclose(fp);
 }
 
 /* ----------------------------------------------------------------------
@@ -2435,8 +2438,8 @@ double FixRigid::memory_usage()
   bytes += (double)maxvatom*6 * sizeof(double);    // vatom
   if (extended) {
     bytes += (double)nmax * sizeof(int);
-    if (orientflag) bytes = (double)nmax*orientflag * sizeof(double);
-    if (dorientflag) bytes = (double)nmax*3 * sizeof(double);
+    if (orientflag) bytes += (double)nmax*orientflag * sizeof(double);
+    if (dorientflag) bytes += (double)nmax*3 * sizeof(double);
   }
   return bytes;
 }

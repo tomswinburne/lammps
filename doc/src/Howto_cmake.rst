@@ -377,7 +377,7 @@ Using presets
 
 Since LAMMPS has a lot of optional features and packages, specifying
 them all on the command-line can be tedious. Or when selecting a
-different compiler toolchain, multiple options have to be changed
+different compiler tool chain, multiple options have to be changed
 consistently and that is rather error prone. Or when enabling certain
 packages, they require consistent settings to be operated in a
 particular mode.  For this purpose, we are providing a selection of
@@ -394,14 +394,14 @@ change some variables later with additional *-D* flags.  A few examples:
    cmake -C ../cmake/presets/basic.cmake -D BUILD_MPI=off ../cmake
 
 The first command will install the packages ``KSPACE``, ``MANYBODY``,
-``MOLECULE``, ``RIGID`` and ``MISC``; the first four from the preset
-file and the fifth from the explicit variable definition.  The second
-command will first switch the compiler toolchain to use the Clang
-compilers and install a large number of packages that are not depending
-on any special external libraries or tools and are not very unusual.
-The third command will enable the first four packages like above and
-then enforce compiling LAMMPS as a serial program (using the MPI STUBS
-library).
+``MOLECULE``, ``RIGID``, ``GRAPHICS``, and ``MISC``; the first five from
+the preset file and the sixth from the explicit variable definition.
+The second command will first switch the compiler tool chain to use the
+Clang compilers and install a large number of packages that are not
+depending on any special external libraries or tools and are not very
+unusual.  The third command will enable the first four packages like
+above and then enforce compiling LAMMPS as a serial program (using the
+MPI STUBS library).
 
 It is also possible to do this incrementally.
 
